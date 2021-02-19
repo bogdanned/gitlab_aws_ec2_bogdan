@@ -1,0 +1,50 @@
+image: node:latest
+stages: ["build", "test", "deploy_aws", "deploy_heroku"]
+
+build:
+  stage: build
+  script:
+    - npm install
+
+test:
+  stage: test
+  script:
+    - npm install
+    - npm run test
+
+# Job Two for deploy build to server
+deploy_aws:
+  stage: deploy_aws
+  before_script:
+    - "which ssh-agent || ( apt-get update -y && apt-get install openssh-client -y )"
+    - eval $(ssh-agent -s)
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
+    - apt-get update -y
+    - apt-get -y install rsync
+  script:
+    - chmod 400 $PRIVATE_KEY
+    # clean up
+    - ssh -i $PRIVATE_KEY ec2-user@$SERVER_IP 'rm -rf /home/ec2-user/api'
+    - ssh -i $PRIVATE_KEY ec2-user@$SERVER_IP 'mkdir /home/ec2-user/api'
+    # copy files
+    - scp -i $PRIVATE_KEY -r src ec2-user@$SERVER_IP:/home/ec2-user/api
+    - scp -i $PRIVATE_KEY package.json ec2-user@$SERVER_IP:/home/ec2-user/api/package.json
+    - scp -i $PRIVATE_KEY -r $ENV_FILE ec2-user@$SERVER_IP:/home/ec2-user/api/.env
+    - scp -i $PRIVATE_KEY deploy.sh ec2-user@$SERVER_IP:/home/ec2-user/api/deploy.sh
+
+    # run the deploy script
+    - ssh -i $PRIVATE_KEY ec2-user@$SERVER_IP 'cd /home/ec2-user/api && bash deploy.sh'
+
+  only: ["main"]
+
+# Job Two for deploy build to server
+deploy_heroku:
+  stage: deploy_heroku
+  script:
+    - apt-get update -qy
+    - apt-get install -y ruby-dev
+    - gem install dpl
+    # - dpl --provider=heroku --app=gitlab-ci-python-test-prod --api-key=$HEROKU_PRODUCTION_API_KEY // TODO
+  only: ["main"]
